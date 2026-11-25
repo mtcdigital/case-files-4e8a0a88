@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>Case Files</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#14181f;--mute:#5b6472;--line:#e3e6ea;--blue:#1d4ed8;--bluebg:#e8efff;--bad:#b42318}
+@media (prefers-color-scheme: dark){:root{--bg:#0f1216;--card:#171b21;--ink:#e8ebef;--mute:#9aa3af;--line:#2a3039;--blue:#93b4ff;--bluebg:#141f38;--bad:#f87171}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:24px 16px 60px}
+h1{font-size:24px;margin:0 0 6px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}
+input{font-size:18px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:220px}
+button{font-size:16px;padding:10px 16px;border-radius:10px;border:0;background:var(--blue);color:#fff;cursor:pointer}
+.err{color:var(--bad);margin-top:8px;min-height:1.4em}
+.mute{color:var(--mute);font-size:14px}
+.folder{font-weight:700;margin:16px 0 6px;color:var(--mute);text-transform:uppercase;font-size:13px;letter-spacing:.04em}
+.f{display:flex;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;word-break:break-all}
+.f:hover{background:var(--bluebg)}
+.f a{color:var(--blue);text-decoration:none}
+.star{background:var(--bluebg);border-radius:12px;padding:12px;margin-bottom:8px}
+#files{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>🔒 Case Files</h1>
+<p class="mute">Private legal materials. Everything on this page is encrypted. Enter the password to view.</p>
+<div class="card" id="login">
+<form id="frm"><input id="pw" type="password" placeholder="Password" autocomplete="current-password" autofocus> <button>Unlock</button></form>
+<div class="err" id="err"></div>
+</div>
+<div id="files">
+<div class="card">
+<div class="star" id="top"></div>
+<div id="list"></div>
+<p class="mute">Files open in a new tab. HTML pages are self-contained, but links between pages won't work here. Open each file from this list instead.</p>
+</div>
+</div>
+</div>
+<script>
+let KEY=null, FILES=[];
+const $=id=>document.getElementById(id);
+const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function dec(buf){const u=new Uint8Array(buf);return crypto.subtle.decrypt({name:'AES-GCM',iv:u.slice(0,12)},KEY,u.slice(12));}
+$('frm').onsubmit=async e=>{
+  e.preventDefault(); $('err').textContent='Unlocking…';
+  try{
+    const salt=b64((await (await fetch('salt.txt')).text()).trim());
+    const base=await crypto.subtle.importKey('raw',new TextEncoder().encode($('pw').value),'PBKDF2',false,['deriveKey']);
+    KEY=await crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:600000,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt']);
+    const m=await dec(await (await fetch('m.bin')).arrayBuffer());
+    FILES=JSON.parse(new TextDecoder().decode(m));
+    render(); $('login').style.display='none'; $('files').style.display='block';
+  }catch(x){ $('err').textContent='Wrong password.'; }
+};
+function size(n){return n>1e6?(n/1e6).toFixed(1)+' MB':Math.max(1,Math.round(n/1e3))+' KB'}
+function row(f,label){const d=document.createElement('div');d.className='f';d.innerHTML='<a></a><span class="mute"></span>';d.firstChild.textContent=label||f.p.split('/').pop();d.lastChild.textContent=size(f.s);d.onclick=()=>openF(f);return d;}
+function render(){
+  const top=$('top'); top.innerHTML='<b>Start here</b>';
+  ['09-ATTORNEY-BRIEF.html','00-START-HERE.html'].forEach(p=>{const f=FILES.find(x=>x.p===p);if(f)top.appendChild(row(f,p==='09-ATTORNEY-BRIEF.html'?'📄 Attorney Brief (main summary)':'🗂 Case HQ'))});
+  const groups={};FILES.forEach(f=>{const g=f.p.includes('/')?f.p.split('/').slice(0,-1).join(' / '):'(top level)';(groups[g]=groups[g]||[]).push(f)});
+  const L=$('list');Object.keys(groups).sort().forEach(g=>{const h=document.createElement('div');h.className='folder';h.textContent=g;L.appendChild(h);groups[g].forEach(f=>L.appendChild(row(f)))});
+}
+async function openF(f){
+  const w=window.open('','_blank'); if(w) w.document.write('<p style="font-family:sans-serif">Decrypting…</p>');
+  const data=await dec(await (await fetch('d/'+f.b)).arrayBuffer());
+  const url=URL.createObjectURL(new Blob([data],{type:f.m}));
+  if(w) w.location=url; else location.href=url;
+}
+</script>
+</body>
+</html>
